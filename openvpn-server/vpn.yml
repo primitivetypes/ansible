@@ -1,0 +1,12 @@
+---
+- name: Install openvpn server
+  hosts: all
+  roles:
+    - vpn
+  vars:
+    - cert_country: US
+    - cert_province: Maryland
+    - cert_city: Takoma Park
+    - cert_org: Primitive Types
+    - cert_email: kevin@primitivetypes.io
+    - cert_ou: PT

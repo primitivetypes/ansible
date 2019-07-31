@@ -1,0 +1,5 @@
+all:
+  hosts:
+    vpn-server:
+      ansible_connection: docker
+      ansible_python_interpreter: python

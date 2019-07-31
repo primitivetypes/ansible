@@ -1,0 +1,182 @@
+---
+# gnupg is required on alpine in order to get a tar that ansible likes
+- name: Install tools
+  package:
+    name: ['openssl', 'tar']
+  become: yes
+
+- name: Install openvpn
+  package:
+    name: openvpn
+    state: present
+  become: yes
+
+- name: Install easy rsa
+  get_url:
+    url: "{{ easy_rsa_url }}"
+    dest: ./
+
+- name: Make CA directory
+  file:
+    path: CA
+    state: directory
+
+- name: Extract easy rsa for CA
+  command: tar zxf ../{{ easy_rsa_tar }}
+  args:
+    chdir: CA
+    creates: CA/{{ easy_rsa_dir }}
+    warn: no
+
+- name: Extract easy rsa
+  unarchive:
+    src: ./{{ easy_rsa_tar }}
+    dest: ./
+    remote_src: yes
+
+- name: Create CA directory
+  file:
+    name: CA
+    state: directory
+
+- name: Copy vars file
+  template:
+    src: templates/vars.j2
+    dest: CA/{{ easy_rsa_dir }}/vars
+
+- name: Init PKI for CA
+  command: ./easyrsa init-pki
+  args:
+    chdir: CA/{{ easy_rsa_dir }}
+    creates: pki
+
+- name: Build CA
+  command: ./easyrsa build-ca nopass
+  args:
+    stdin: "blueivypartners CA"
+    chdir: CA/{{ easy_rsa_dir }}
+    creates: pki/ca.crt
+
+- name: Init PKI
+  command: ./easyrsa init-pki
+  args:
+    chdir: "{{ easy_rsa_dir }}"
+    creates: pki
+
+- name: Create server certificate request
+  command: ./easyrsa gen-req server nopass
+  args:
+    stdin: "server"
+    chdir: "{{ easy_rsa_dir }}"
+    creates: pki/private/server.key
+
+- name: Copy server key to OpenVPN
+  copy:
+    src: "{{ easy_rsa_dir }}/pki/private/server.key"
+    dest: /etc/openvpn/
+    remote_src: yes
+  become: yes
+
+- name: Import server cert request into CA
+  command: ./easyrsa import-req ../../{{ easy_rsa_dir }}/pki/reqs/server.req server
+  args:
+    chdir: CA/{{ easy_rsa_dir }}
+    creates: pki/reqs/server.req
+
+- name: Sign the request
+  command: ./easyrsa sign-req server server
+  args:
+    stdin: "yes"
+    chdir: CA/{{ easy_rsa_dir }}
+    creates: pki/issued/server.crt
+
+- name: Install CA cert
+  copy:
+    src: CA/{{ easy_rsa_dir }}/pki/ca.crt
+    dest: /etc/openvpn
+    remote_src: yes
+  become: yes
+
+- name: Install server cert
+  copy:
+    src: CA/{{ easy_rsa_dir }}/pki/issued/server.crt
+    dest: /etc/openvpn
+    remote_src: yes
+  become: yes
+
+- name: Generate diffie hellman
+  command: ./easyrsa gen-dh
+  args:
+    chdir: "{{ easy_rsa_dir }}"
+    creates: pki/dh.pem
+
+- name: Install DH
+  copy:
+    src: "{{ easy_rsa_dir }}/pki/dh.pem"
+    dest: /etc/openvpn
+    remote_src: yes
+  become: yes
+
+- name: Generate ta.key
+  command: openvpn --genkey --secret ta.key
+  args:
+    chdir: "{{ easy_rsa_dir }}"
+    creates: ta.key
+
+- name: Install ta key
+  copy:
+    src: "{{ easy_rsa_dir }}/ta.key"
+    dest: /etc/openvpn
+    remote_src: yes
+  become: yes
+
+- name: Set up client cert directory
+  file:
+    name: client-configs
+    state: directory
+    mode: 0700
+
+- name: Set up client keys directory
+  file:
+    name: client-configs/keys
+    state: directory
+    mode: 0700
+
+- name: Install openvpn server.conf
+  copy:
+    src: files/server.conf
+    dest: /etc/openvpn/server.conf
+  become: yes
+
+- name: Enable openvpn service
+  service:
+    name: openvpn
+    state: started
+    enabled: yes
+  become: yes
+  when: ansible_os_family != 'Alpine'
+
+- name: Install iptables-persistent
+  package:
+    name: iptables-persistent
+    state: present
+  become: yes
+  when: ansible_os_family != 'Alpine'
+
+- name: Turn on ip forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: yes
+  become: yes
+
+- name: Allow masquerading
+  iptables:
+    table: nat
+    chain: POSTROUTING
+    jump: MASQUERADE
+    source: 10.8.0.0/8
+    out_interface: eth0
+    action: append
+  become: yes
+

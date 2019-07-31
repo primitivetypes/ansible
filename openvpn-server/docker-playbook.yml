@@ -1,0 +1,25 @@
+---
+- hosts: localhost
+  tasks:
+    - docker_container:
+        name: vpn-server
+        image: python:alpine
+        command: ["sleep", "1d"] # < need to set entryopint to openvpn
+        capabilities:
+          - NET_ADMIN
+        volumes:
+          # FIXME: What is the best way to template out this path?
+          - /Users/kevin/code/primitivetypes/devops/openvpn-server/data:/home/openvpn/
+
+- name: VPN Server
+  hosts: vpn-server
+  roles:
+    - name: "vpn"
+  vars:
+    - cert_country: US
+    - cert_province: Maryland
+    - cert_city: Takoma Park
+    - cert_org: Primitive Types
+    - cert_email: kevin@primitivetypes.io
+    - cert_ou: PT
+  become_method: su
