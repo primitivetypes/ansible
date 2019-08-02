@@ -1,5 +1,4 @@
 ---
-# gnupg is required on alpine in order to get a tar that ansible likes
 - name: Install tools
   package:
     name: ['openssl', 'tar']
